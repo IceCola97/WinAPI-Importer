@@ -5,7 +5,7 @@
 		<DisplayName>WinAPI Importer</DisplayName>
 		<Description xml:space="preserve">Provide a simple declaration method for WinAPI to C # programmers.</Description>
 		<MoreInfo>https://github.com/IceCola97/WinAPI-Importer</MoreInfo>
-		<License>../LICENSE.txt</License>
+		<License>LICENSE.txt</License>
 		<Preview>true</Preview>
 	</Metadata>
 	<Installation>
