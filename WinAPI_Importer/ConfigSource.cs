@@ -25,19 +25,20 @@ namespace WinAPI_Importer
 		private const string CppTypeName = @"(?:(?:(?:const|CONST)\s+)?(?:unsigned|signed|struct|union)\s+)?(?:\w+|(?:long|short)\s+int|long\s+long)(?:\s*\*)*";
 
 		private const string MicrosoftLearnSearchAPI =
-			"https://learn.microsoft.com/api/search?search=WinAPI+function+{0}&locale=en-us&%24top=10&expandScope=true&includeQuestion=false&partnerId=LearnSite";
+			"https://learn.microsoft.com/api/search?search=WinAPI+function+{0}&locale=en-us&%24top=30&expandScope=true&includeQuestion=false&partnerId=LearnSite";
 		private const string DefaultTitlePattern = @"(?<name>\w+)\s+function\s*\((?<source>\w+(?:.(?:h|lib|dll))?)\)";
 		private const string DefaultTypeSelector = "#main > div.content > h1";
 		private const string DefaultPrototypeSelector = "#main > div.content > pre > code";
 		private const string DefaultModuleSelector = "meta[name=\"req.dll\"]";
 		private const string DefaultNamePattern = @"(?<name>\w+)\s+(?:[\w\s]+\w)\s*(?:\(\w+(?:.(?:h|lib|dll))?\))?";
 		private const string DefaultTypePattern = @"\w+\s+(?<type>[\w\s]+\w)\s*(?:\(\w+(?:.(?:h|lib|dll))?\))?";
-		private const string DefaultFunctionHeadPattern = @"(?<return>{0})\s+(?<name>\w+)(?=\()";
-		private const string DefaultFunctionParamsPattern = @"\((?<param>(?:(?<=\()|,)\s*(?<ref>(?:\[[\w\s,]+\]|_[_IinOoutp]+_)\s+)?(?:\w+\s+)?(?<type>{0}\s+)(?<name>\w+)\s*)*\)";
+		private const string DefaultFunctionHeadPattern = @"(?<return>{0}\s+|{0}\s*\*+\s*)(?<name>\w+)(?=\()";
+		private const string DefaultFunctionParamsPattern = @"\((?<param>(?:(?<=\()|,)\s*(?<ref>(?:\[[\w\s,]+\]|_[_IinOoutp]+_)\s+)?(?:\w+\s+)?(?<type>{0}\s+|{0}\s*\*+\s*)(?<name>\w+)\s*)*\)";
 		private const string DefaultInPattern = @"\b[Ii][Nn]\b";
 		private const string DefaultOutPattern = @"\b[Oo][Uu][Tt]\b";
 		private const string DefaultRefPattern = null;
 		private const string DefaultOptionalPattern = @"\b[Oo][Pp][Tt][Ii][Oo][Nn][Aa][Ll]\b";
+		private const bool DefaultMarkInOut = false;
 
 		private static readonly IDictionary<string, PrototypeKind> DefaultTypeMap;
 		private static readonly IDictionary<string, string> DefaultSharpTypeMap;
@@ -54,6 +55,7 @@ namespace WinAPI_Importer
 		private const string Key_FuncParamsPattern = "func_params_pattern";
 		private const string Key_RefPatterns = "ref_patterns";
 		private const string Key_SharpTypeMap = "sharp_type_map";
+		private const string Key_MarkInOut = "mark_in_out";
 
 		private static readonly ConfigSource Default;
 
@@ -72,6 +74,7 @@ namespace WinAPI_Importer
 		private readonly Regex m_OptionalPattern;
 		private readonly IDictionary<string, PrototypeKind> m_TypeMap;
 		private readonly IDictionary<string, string> m_SharpTypeMap;
+		private readonly bool m_MarkInOut;
 
 		static ConfigSource()
 		{
@@ -107,6 +110,7 @@ namespace WinAPI_Importer
 			m_RefPattern = null;
 			m_OptionalPattern = new Regex(DefaultOptionalPattern);
 			m_SharpTypeMap = DefaultSharpTypeMap;
+			m_MarkInOut = DefaultMarkInOut;
 		}
 
 		private ConfigSource(JToken token)
@@ -141,6 +145,7 @@ namespace WinAPI_Importer
 
 			m_SharpTypeMap = token.IndexObject<string>(Key_SharpTypeMap)
 				?? DefaultSharpTypeMap;
+			m_MarkInOut = token.IndexValue<bool>(Key_MarkInOut);
 		}
 
 		public static async Task<ConfigSource> GetConfigSource(Solution solution)
@@ -168,6 +173,7 @@ namespace WinAPI_Importer
 						{ Key_FuncHeadPattern, DefaultFunctionHeadPattern },
 						{ Key_FuncParamsPattern, DefaultFunctionParamsPattern },
 						{ Key_SharpTypeMap, ToJObject(DefaultSharpTypeMap) },
+						{ Key_MarkInOut, DefaultMarkInOut },
 					};
 
 					File.WriteAllText(path, JsonConvert.SerializeObject(root,
@@ -184,6 +190,8 @@ namespace WinAPI_Importer
 		public string PrototypeSelector => m_PagePrototypeSelector;
 
 		public string ModuleSelector => m_PageModuleSelector;
+
+		public bool IsMarkInOut => m_MarkInOut;
 
 		public string BuildUrl(string keyword) => string.Format(m_SearchTemplate, keyword);
 
@@ -324,14 +332,22 @@ namespace WinAPI_Importer
 		public (ITypeSymbol type, TypeModifier modifier) ConvertType
 			(string cppType, Compilation compilation)
 		{
-			if (m_SharpTypeMap.TryGetValue(cppType, out var sharpType))
-				return DefinedType.SharpType(compilation, sharpType);
+			var (trimmed, ptrLevel) = DefinedType.TrimPointer(cppType);
 
-			var (type, modifier) = DefinedType.ParseType(compilation, cppType);
+			ITypeSymbol type;
+			TypeModifier modifier;
+
+			if (m_SharpTypeMap.TryGetValue(trimmed, out var sharpType))
+				(type, modifier) = DefinedType.SharpType(compilation, sharpType);
+			else
+				(type, modifier) = DefinedType.ParseType(compilation, trimmed);
 
 			if (type is null)
-				return (compilation.CreateErrorTypeSymbol(null, cppType, 0), default);
+				return (compilation.CreateErrorTypeSymbol(null, trimmed, 0),
+					new TypeModifier { PointerLevel = ptrLevel });
 
+			modifier = new TypeModifier(modifier.StringType, modifier.RefParamType,
+				modifier.PointerLevel + ptrLevel);
 			return (type, modifier);
 		}
 

@@ -9,9 +9,11 @@ namespace WinAPI_Importer
 {
 	internal static class AssemblyLoader
 	{
-		private static Assembly m_Assembly_AngleSharp = null;
-		private static Assembly m_Assembly_AngleSharp_XPath = null;
-		private static Assembly m_Assembly_Newtonsoft_Json = null;
+		private static readonly object m_Lock = new object();
+
+		private static volatile Assembly m_Assembly_AngleSharp = null;
+		private static volatile Assembly m_Assembly_AngleSharp_XPath = null;
+		private static volatile Assembly m_Assembly_Newtonsoft_Json = null;
 
 		static AssemblyLoader()
 		{
@@ -19,33 +21,75 @@ namespace WinAPI_Importer
 			AppDomain.CurrentDomain.AssemblyLoad += CurrentDomain_AssemblyLoad;
 		}
 
+		private static Assembly FindAssembly(string name)
+		{
+			var assemblies = AppDomain.CurrentDomain.GetAssemblies()
+				.Where(a => a.FullName.StartsWith(name + ","))
+				.ToArray();
+
+			if (assemblies.Length == 0)
+				return null;
+			if (assemblies.Length == 1)
+				return assemblies[0];
+
+			throw new AmbiguousMatchException($"有多个名为 '{name}' 的程序集存在");
+		}
+
 		private static void CurrentDomain_AssemblyLoad(object sender, AssemblyLoadEventArgs args)
 		{
-			var name = args.LoadedAssembly.FullName;
+			lock (m_Lock)
+			{
+				var name = args.LoadedAssembly.FullName.FromFullName();
 
-			if (name.StartsWith("AngleSharp,"))
-				m_Assembly_AngleSharp = args.LoadedAssembly;
-			else if (name.StartsWith("AngleSharp.XPath,"))
-				m_Assembly_AngleSharp_XPath = args.LoadedAssembly;
-			else if (name.StartsWith("Newtonsoft.Json,"))
-				m_Assembly_Newtonsoft_Json = args.LoadedAssembly;
+				switch (name)
+				{
+					case "AngleSharp":
+						m_Assembly_AngleSharp = args.LoadedAssembly;
+						break;
+					case "AngleSharp.XPath":
+						m_Assembly_AngleSharp_XPath = args.LoadedAssembly;
+						break;
+					case "Newtonsoft.Json":
+						m_Assembly_Newtonsoft_Json = args.LoadedAssembly;
+						break;
+				}
+			}
+		}
+
+		private static string FromFullName(this string fullName)
+		{
+			var items = fullName.Split(Misc.Array(','), 2);
+
+			if (items.Length > 0)
+				return items[0];
+
+			return fullName;
 		}
 
 		private static Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args)
 		{
-			var name = args.Name;
+			lock (m_Lock)
+			{
+				var name = args.Name.FromFullName();
 
-			if (name.StartsWith("AngleSharp,"))
-				return m_Assembly_AngleSharp
-					?? AppDomain.CurrentDomain.Load(Resource.AngleSharp);
-			else if (name.StartsWith("AngleSharp.XPath,"))
-				return m_Assembly_AngleSharp_XPath
-					?? AppDomain.CurrentDomain.Load(Resource.AngleSharp_XPath);
-			else if (name.StartsWith("Newtonsoft.Json,"))
-				return m_Assembly_Newtonsoft_Json
-					?? AppDomain.CurrentDomain.Load(Resource.Newtonsoft_Json);
+				switch (name)
+				{
+					case "AngleSharp":
+						return m_Assembly_AngleSharp
+							?? FindAssembly(name)
+							?? AppDomain.CurrentDomain.Load(Resource.AngleSharp);
+					case "AngleSharp.XPath":
+						return m_Assembly_AngleSharp_XPath
+							?? FindAssembly(name)
+							?? AppDomain.CurrentDomain.Load(Resource.AngleSharp_XPath);
+					case "Newtonsoft.Json":
+						return m_Assembly_Newtonsoft_Json
+							?? FindAssembly(name)
+							?? AppDomain.CurrentDomain.Load(Resource.Newtonsoft_Json);
+				}
 
-			return null;
+				return null;
+			}
 		}
 
 		public static void Initialize() { }

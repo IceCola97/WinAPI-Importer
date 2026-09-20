@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -733,6 +734,13 @@ namespace WinAPI_Importer
 
 			return (context.CreateErrorTypeSymbol(null, type, 0),
 				new TypeModifier(stringType, refParamType, pointerLevel));
+		}
+
+		public static (string trimmed, int ptrLevel) TrimPointer(string maybePtr)
+		{
+			string trimmed = maybePtr.TrimEnd('*', ' ', '\t', '\r', '\n');
+			string tail = maybePtr.Substring(trimmed.Length).Trim();
+			return (trimmed, tail.Count(c => c == '*'));
 		}
 	}
 }

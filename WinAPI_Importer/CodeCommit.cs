@@ -95,15 +95,19 @@ namespace WinAPI_Importer
 				var paramModifier = TypeModifier.Combine(paramInner, paramSlot.TypeModifier);
 
 				methodBuilder.AddParameter(paramModifier.ApplyParameter(semantic, position,
-					paramType, paramSlot.Name, paramSlot.IsOptional, paramSlot.TypeModifier.RefParamType));
+					paramType, paramSlot.Name, paramSlot.IsOptional,
+					config.IsMarkInOut ? paramSlot.TypeModifier.RefParamType : RefParamType.None));
 			}
 
+			// Summary
 			var newLineTrivia = SyntaxFactory.SyntaxTrivia(
 				SyntaxKind.EndOfLineTrivia, Environment.NewLine);
 			var xmlComment = new XmlBuilder()
 				.AddNode("summary", new XmlBuilder()
 					.AddSeeHrefNode(entry.ReferUrl))
 				.Create();
+
+			// Build Method
 			var newMethod = methodBuilder.Create()
 				.WithLeadingTrivia(newLineTrivia, xmlComment, newLineTrivia);
 			var newSyntax = syntax.InsertNodesAfter(last, Misc.Array(newMethod));

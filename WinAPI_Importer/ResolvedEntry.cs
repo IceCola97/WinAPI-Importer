@@ -226,7 +226,7 @@ namespace WinAPI_Importer
 			RefParamType finalRefType;
 			int totalLevel = inner.PointerLevel + outer.PointerLevel;
 
-			if (outer.PointerLevel > 0)
+			if (totalLevel > 0)
 			{
 				finalRefType = outer.RefParamType;
 
